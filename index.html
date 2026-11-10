@@ -42,6 +42,7 @@
 (function () {
   var API = 'https://script.google.com/macros/s/AKfycbzUQdgXOqpr7VV7OptYDXPI9HDWhbY5LjhHwBymt4TXtod6JIob1Y0L7rgGo9yx5TjmgA/exec';
   var KEY = 'lttc_admin_auth';   // sign-in token for this browser (30 days); Sign out in the Admin page removes it
+  var TK = 'lttc_admin_tpl';     // the Admin page itself, kept per web-app version (about 400 KB): a reload only downloads the data
   var $ = function (id) { return document.getElementById(id); };
   var msg = $('msg'), err = $('err'), spin = $('spin'), acts = $('acts'), gbtn = $('gbtn');
   $('again').onclick = function () { load(); };
@@ -61,12 +62,18 @@
   function load() {
     state({ busy: true, msg: 'Loading the Admin page…' });
     var slow = setTimeout(function () { msg.textContent = 'Still loading – this can take a few seconds…'; }, 6000);
-    post('adminGh', [params(), location.origin + location.pathname], token()).then(function (d) {
+    var kept = store(function (ls) { return JSON.parse(ls.getItem(TK) || 'null'); });
+    post('adminGh', [params(), location.origin + location.pathname, kept && kept.b ? kept.b : ''], token()).then(function (d) {
       clearTimeout(slow);
       if (!d || !d.ok) return fail(d && d.error);
       var r = d.r || {};
       if (r.signin) { if (r.email || token()) store(function (ls) { ls.removeItem(KEY); }); return signin(r); }
-      document.open(); document.write(r.html); document.close();
+      if (r.tpl) store(function (ls) { ls.setItem(TK, JSON.stringify({ b: r.build, tpl: r.tpl })); });
+      var tpl = r.tpl || (kept && kept.b === r.build ? kept.tpl : '');
+      if (!r.props && r.html) tpl = '';   // older web app: the whole page comes ready
+      if (!tpl && !r.html) { store(function (ls) { ls.removeItem(TK); }); return load(); }
+      var html = tpl ? tpl.replace('LT_PROPS_JSON', function () { return r.props; }) : r.html;
+      document.open(); document.write(html); document.close();
     }).catch(function (e) { clearTimeout(slow); fail(e && e.message); });
   }
   var gsiReady = null, clientId = '';
